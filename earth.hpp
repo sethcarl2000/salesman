@@ -1,4 +1,19 @@
-TCanvas *earth(){
+#ifndef earth_HPP
+#define earth_HPP
+
+#include <TCanvas.h> 
+#include <TStyle.h> 
+#include <TH2F.h> 
+#include <TStyle.h> 
+#include <fstream> 
+#include <TSystem.h> 
+#include <TString.h> 
+#include <string> 
+
+TCanvas *earth(std::string filepath=""){
+
+  using namespace std; 
+
   //this tutorial illustrate the special contour options
   //    "AITOFF"     : Draw a contour via an AITOFF projection
   //    "MERCATOR"   : Draw a contour via an Mercator projection
@@ -19,12 +34,10 @@ TCanvas *earth(){
    TH2F *hs = new TH2F("hs","Sinusoidal",180, -180, 180, 181, -90.5, 90.5);
    TH2F *hp = new TH2F("hp","Parabolic", 180, -180, 180, 181, -90.5, 90.5);
 
-   TString dat = gSystem->UnixPathName(__FILE__);
-   dat.ReplaceAll(".C",".dat");
-   dat.ReplaceAll("/./","/");
+   if (filepath=="") filepath = gSystem->UnixPathName(__FILE__);
 
    ifstream in;
-   in.open(dat.Data());
+   in.open(filepath.data());
    Float_t x,y;
    while (1) {
      in >> x >> y;
@@ -44,4 +57,5 @@ TCanvas *earth(){
    return c1;
 }
 
+#endif 
 

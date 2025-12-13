@@ -1,0 +1,17 @@
+{
+    "configurations": [
+        {
+            "name": "Linux", // or "Mac" or "Win32"
+            "includePath": [
+                "${workspaceFolder}/**",
+                "/home/sethcarl2000/miniconda3/envs/root-env/include"
+            ],
+            "defines": [],
+            "compilerPath": "/home/sethcarl2000/miniconda3/envs/root-env/bin/g++",
+            "cStandard": "c17",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "linux-gcc-x64" // adjust for your platform
+        }
+    ],
+    "version": 4
+}
