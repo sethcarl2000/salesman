@@ -38,15 +38,14 @@ double CityDistance(const CityCoord& c1, const CityCoord& c2)
 //  Valid generation keywords are: 
 //    -   "random"      -cities are randomly distributed over the earth's surface
 //    -   "equatorial"  -cities are randomly generated along the equator
-//    -   "polar"       -cities are randomly generated along a great circle that intersects with the north pole
-std::vector<CityCoord> MakeFakeCities(const size_t N, const std::string type="random", std::random_device* rd=nullptr)
+std::vector<CityCoord> MakeFakeCities(const size_t N, const std::string type, std::random_device* rd)
 {
   using namespace std; 
 
   //check if the argument provided is valid or not
   bool valid_arg{false}; 
 
-  for (const string& arg : {"random", "equatorial", "polar"}) { 
+  for (const string& arg : {"random", "equatorial"}) { 
     if (arg==type) { valid_arg=true; break; } 
   }
 
@@ -94,8 +93,18 @@ std::vector<CityCoord> MakeFakeCities(const size_t N, const std::string type="ra
     }
     return cities; 
   } 
-  
-  
+
+  //randomly distributed cities along the equator
+  if (type=="equatorial") {
+
+    //randomly generates longitude
+    auto rand_longitude = std::bind( uniform_real_distribution<double>{-180., +180.}, mt19937((*rd)()) ); 
+
+    for (size_t i=0; i<N; i++) {
+      cities.push_back(CityCoord{.lat=0., .lon=rand_longitude()}); 
+    }
+    return cities; 
+  }
 
   return {}; 
 }
