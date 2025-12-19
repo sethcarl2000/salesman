@@ -23,12 +23,13 @@ class Annealer {
 public: 
     Annealer(const std::vector<CityCoord>& _c);
 
-    //update that considers a swap between two randomly-chosen cities
-    bool Swap_update(double beta); 
+    ~Annealer() { delete[] fDistances; }
 
-    //update that picks two random cities, and considers putting them next-to-each other as the update. more expensive! 
-    bool Pinch_update(double beta); 
+    //randomly shuffle list of cities
+    void Shuffle(); 
 
+    //performs a set number of swaps for a fixed T-value. returns the fraction of swaps that were 'accepted'. 
+    double Swap_update(double T, const unsigned long n_swaps); 
 
     //Get the total length of the current path, in radians
     double Get_total_length() const; 
@@ -41,6 +42,7 @@ public:
     
 private: 
 
+
     //compute the length of a walk between several cities, ordered by the indices provided.
     double Compute_chain_length(const std::vector<int>& indices) const; 
 
@@ -51,9 +53,14 @@ private:
     std::uniform_real_distribution<double> fUniform_dist; 
     std::mt19937 fGenerator; 
 
+    //pre-computed distances between each city
+    double *fDistances; 
+
     //random number generators 
     inline int rand_index() { return fRand_index_dist(fGenerator); }
     inline double rand_uniform() { return fUniform_dist(fGenerator); }
+
+    inline double CityDistance_arr(int i1, int i2) const { return fDistances[ i1*n_cities + i2 ]; }
 };
 
 

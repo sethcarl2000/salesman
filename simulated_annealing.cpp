@@ -12,6 +12,7 @@
 namespace {
   constexpr double pi = 3.14159265359; 
   constexpr double deg_to_rad = pi/180.; 
+  constexpr double half_pi = pi/2.; 
 }
 
 //__________________________________________________________________________________
@@ -21,15 +22,17 @@ double CityDistance(const CityCoord& c1, const CityCoord& c2)
   using namespace std; 
 
   //difference betweem the two phi's
-  const double cos_phi1_2 = cos(deg_to_rad*(c1.lon - c2.lon));
+  const double cos_phi1_2 = cos(c1.lon - c2.lon);
   
-  //thetas (with 0 being the north pole)
-  const double sin_th1 = sin(deg_to_rad*(90. - c1.lat)); 
-  const double sin_th2 = sin(deg_to_rad*(90. - c2.lat)); 
+  //thetas (with 0 being the north pole; same as for spherical coordinates)
+  const double sin_th1 = sin(half_pi - c1.lat); 
+  const double sin_th2 = sin(half_pi - c2.lat); 
 
-  return acos(
-    (cos_phi1_2 * sin_th1 * sin_th2) + sqrt((1. - sin_th1*sin_th1)*(1. - sin_th2*sin_th2))
-  );
+  const double cos_th1 = cos(half_pi - c1.lat); 
+  const double cos_th2 = cos(half_pi - c2.lat); 
+  
+  return acos((cos_phi1_2 * sin_th1 * sin_th2) +  (cos_th1 * cos_th2)); 
+
 } 
 //_________________________________________________________________________________
 
@@ -181,11 +184,25 @@ Annealer::Annealer(const std::vector<CityCoord>& _c)
   fUniform_dist = uniform_real_distribution<double>(0., 1.); 
   fRand_index_dist = uniform_int_distribution<int>(0., n_cities-1); 
 
-  fOrder.reserve(n_cities); 
-  for (int i=0; i<n_cities; i++) fOrder.push_back(i); 
+  fOrder = SortCities(fCities); 
 
-  std::shuffle( fOrder.begin(), fOrder.end(), fGenerator ); 
+  //compute distances of all cities 
+  //yes, this array is enormous. 
+  fDistances = new double[n_cities*n_cities]; 
+  for (int i1=0; i1<n_cities; i1++) {
+    for (int i2=0; i2<n_cities; i2++) {
+
+      fDistances[ i1*n_cities + i2 ] = CityDistance( fCities[i1], fCities[i2] ); 
+    }
+  }
 }; 
+
+//___________________________________________________________________________________
+//randomly shuffle order of cities
+void Annealer::Shuffle() 
+{
+  std::shuffle( fOrder.begin(), fOrder.end(), fGenerator ); 
+}
 
 //___________________________________________________________________________________
 //get total length of current ordering (in radians)
@@ -194,191 +211,124 @@ double Annealer::Get_total_length() const
   double length = 0.; 
   for (size_t i=0; i<fCities.size()-1; i++) {
 
-    length += CityDistance( fCities[fOrder[i]], fCities[fOrder[i+1]] );
+    length += CityDistance_arr( fOrder[i], fOrder[i+1] );
   }
-  length += CityDistance( fCities[fOrder.back()], fCities[fOrder.front()] );
+  length += CityDistance_arr( fOrder.back(), fOrder.front() );
 
   return length;
 }
 
-//___________________________________________________________________________________
-//compute the length of a walk between several cities, ordered by the indices provided.
-double Annealer::Compute_chain_length(const std::vector<int>& indices) const
-{
-  double length=0.; 
-  const int n_ind=indices.size();
-
-  int i=0; 
-  int ind_old=indices[i]; 
-  if (ind_old >= n_cities) ind_old -= n_cities;
-  if (ind_old < 0)         ind_old += n_cities; 
-
-  while (++i < n_ind) {
-
-    int ind_new = indices[i];
-    if (ind_new >= n_cities) ind_new -= n_cities;
-    if (ind_new < 0)         ind_new += n_cities;
-    
-    length += CityDistance(fCities[fOrder[ind_old]], fCities[fOrder[ind_new]]); 
-
-    ind_old = ind_new; 
-  }
-
-  return length; 
-}
-
-
 //__________________________________________________________________________________
 // annealing update where the proposed update is a swap of the index ordering 
-bool Annealer::Swap_update(double beta) 
+double Annealer::Swap_update(double T, const unsigned long n_swaps) 
 {
   using namespace std; 
   //check the 'energy change' (change in total angle) between the current state and the proposed update. 
 
-  //get two (distinct!) random indices
-  int ind1 = rand_index(); 
-  int ind2; do { ind2 = rand_index(); } while (ind1==ind2);
+  //number of proposed swaps that are accepted. 
+  unsigned long n_accepted=0;
 
-  
-  //check to see if the indices are adjacent
-  int sep = abs( ind1 - ind2 ); 
-  bool is_adjacent = (sep==1 || sep==n_cities-1); 
+  //loop through all the swaps 
+  for (unsigned long i=0; i<n_swaps; i++) {
 
-  //this will be the change in length (in radians). 
-  // d_energy < 0 means the suggested update is a decrease in length,
-  // d_energy > 0 means the suggested update is an increase in length.  
-  double d_energy; 
+    //get two (distinct!) random indices
+    int ind1, ind2; 
 
-  if (is_adjacent) { //these two cities are currently adjacent in our ordering of cities
+    ind1 = rand_index(); 
+    do { ind2 = rand_index(); } while (ind1==ind2);
+    
+    //check to see if the indices are adjacent
+    int sep = abs( ind1 - ind2 ); 
+    bool is_adjacent = (sep==1 || sep==n_cities-1); 
 
-    int i_lo = min<int>(ind1, ind2); 
-    int i_hi = max<int>(ind1, ind2); 
+    //this will be the change in length (in radians). 
+    // d_energy < 0 means the suggested update is a decrease in length,
+    // d_energy > 0 means the suggested update is an increase in length.  
+    double d_energy; 
 
-    //first compute the original length.
-    //we will cheat here; if we swap the order of two adjacent cities, then the __distance between them__ does not change; 
-    // the only change in length comes from swapping their order: 
-    /*  
-          ---- C0   C2   
-                |  / |
-                | /  |
-                C1   C3 ----- 
+    if (is_adjacent) { //these two cities are currently adjacent in our ordering of cities
 
-    swapping the order of C1 & C2: 
+      int i_lo = min<int>(ind1, ind2); 
+      int i_hi = max<int>(ind1, ind2); 
 
-          ---- C0---C2   
-                  / 
+      //first compute the original length.
+      //we will cheat here; if we swap the order of two adjacent cities, then the __distance between them__ does not change; 
+      // the only change in length comes from swapping their order: 
+      /*  
+            ---- C0   C2   
+                  |  / |
+                  | /  |
+                 C1   C3 ----- 
+
+      swapping the order of C1 & C2: 
+
+            ---- C0---C2   
+                    / 
                   /  
                 C1---C3 ----- 
-    */
-    d_energy = 
-      CityDistance( 
-        fCities[i_lo-1>=0       ? fOrder[i_lo-1] : fOrder.back()], 
-        fCities[fOrder[i_hi]] 
-      ) + 
-      CityDistance( 
-        fCities[i_hi+1<n_cities ? fOrder[i_hi+1] : fOrder.front()], 
-        fCities[fOrder[i_lo]] 
-      ); 
-
-    //now, compute what these distances are in the original (current) ordering. 
-    d_energy -= 
-      CityDistance( 
-        fCities[i_lo-1>=0       ? fOrder[i_lo-1] : fOrder.back()], 
-        fCities[fOrder[i_lo]] 
-      ) + 
-      CityDistance( 
-        fCities[i_hi+1<n_cities ? fOrder[i_hi+1] : fOrder.front()], 
-        fCities[fOrder[i_hi]] 
-      ); 
-    
-
-  } else { //this is for cities that are NOT currently adjacent. 
-      
-    //this only works for NON-ADJACENT cities (adjaceny defined by the current ordering of cities, NOT by physical proximity)
-    auto check_swapped_distances = [&](int index_old, int index_new)
-    {
-      return
-        CityDistance( 
-          fCities[index_old-1>=0      ? fOrder[index_old-1] : fOrder.back()], 
-          fCities[fOrder[index_new]] 
-        ) +  
-        CityDistance( 
-          fCities[fOrder[index_new]], 
-          fCities[index_old+1<n_cities ? fOrder[index_old+1] : fOrder.front()] 
+      */
+      d_energy = 
+        CityDistance_arr( 
+          i_lo-1>=0       ? fOrder[i_lo-1] : fOrder.back(), 
+          fOrder[i_hi] 
+        ) + 
+        CityDistance_arr( 
+          i_hi+1<n_cities ? fOrder[i_hi+1] : fOrder.front(), 
+          fOrder[i_lo] 
         ); 
-    };
 
-    d_energy = 
-      check_swapped_distances(ind1, ind2) + 
-      check_swapped_distances(ind2, ind1); 
+      //now, compute what these distances are in the original (current) ordering. 
+      d_energy -= 
+        CityDistance_arr( 
+          i_lo-1>=0       ? fOrder[i_lo-1] : fOrder.back(), 
+          fOrder[i_lo] 
+        ) + 
+        CityDistance_arr( 
+          i_hi+1<n_cities ? fOrder[i_hi+1] : fOrder.front(), 
+          fOrder[i_hi] 
+        ); 
+      
 
-    d_energy -= 
-      check_swapped_distances(ind1, ind1) + 
-      check_swapped_distances(ind2, ind2); 
+    } else { //this is for cities that are NOT currently adjacent. 
+        
+      //this only works for NON-ADJACENT cities (adjaceny defined by the current ordering of cities, NOT by physical proximity)
+      auto check_swapped_distances = [&](int index_old, int index_new)
+      {
+        return
+          CityDistance_arr( 
+            index_old-1>=0       ? fOrder[index_old-1] : fOrder[n_cities-1], 
+            fOrder[index_new] 
+          ) +  
+          CityDistance_arr( 
+            fOrder[index_new], 
+            index_old+1<n_cities ? fOrder[index_old+1] : fOrder[0] 
+          ); 
+      };
+
+      d_energy = 
+        check_swapped_distances(ind1, ind2) + 
+        check_swapped_distances(ind2, ind1); 
+
+      d_energy -= 
+        check_swapped_distances(ind1, ind1) + 
+        check_swapped_distances(ind2, ind2); 
+    }
+
+    //now randomly decide if the swap will be accepted
+    if (d_energy < 0. || exp( -d_energy/T ) > rand_uniform()) {
+
+      //then, accept the new update. swap the orders of the cities
+      int index_new_1 = fOrder[ind2]; 
+      int index_new_2 = fOrder[ind1]; 
+
+      fOrder[ind1] = index_new_1;  
+      fOrder[ind2] = index_new_2; 
+
+      n_accepted++; //new update accepted
+    } 
   }
 
-  double prob_increase = exp( -beta*d_energy ); 
-
-  if (d_energy < 0. || prob_increase > rand_uniform()) {
-
-    //then, accept the new update. swap the orders of the cities
-    int index_new_1 = fOrder[ind2]; 
-    int index_new_2 = fOrder[ind1]; 
-
-    fOrder[ind1] = index_new_1;  
-    fOrder[ind2] = index_new_2; 
-
-    return true; //new update accepted
-  }
-  return false; //new update rejected. 
+  return ((double)n_accepted)/((double)n_swaps); 
 } 
 
-//__________________________________________________________________________________
-// annealing update where the proposed update is a swap of the index ordering 
-bool Annealer::Pinch_update(double beta) 
-{
-  using namespace std; 
-  //check the 'energy change' (change in total angle) between the current state and the proposed update. 
-
-  //get two (distinct!) random indices
-  int ind1 = rand_index(); 
-  int sep; 
-  int ind2; do { 
-    
-    ind2 = rand_index();
-    sep = abs(ind1-ind2);  
-
-    //we don't want these cities to be adjacent
-  } while ( sep<=1 || sep==n_cities-1 );
-
-
-  //now, we consider how putting these cities in-order changes the overall travel length 
-  //this only works for NON-ADJACENT cities (adjaceny defined by the current ordering of cities, NOT by physical proximity)
-  
-  //this is the original ordering. 
-  double old_length = 
-    Compute_chain_length({ind1-1, ind1, ind1+1}) + 
-    Compute_chain_length({ind2-1, ind2, ind2+1}); 
-    
-
-  //here, you can see that the suggested update is that we 'pluck' ind2 out of its current position, and 'place' it 
-  // next to ind1. 
-  double new_length = 
-    Compute_chain_length({ind1-1, ind1, ind2, ind1+1}) +
-    Compute_chain_length({ind2-1, ind2+1}); 
-
-
-  double d_energy = new_length - old_length; 
-
-  double prob_increase = exp( -beta*d_energy ); 
-
-  if (d_energy < 0. || prob_increase > rand_uniform()) {
-
-    //then, accept the new update. swap the orders of the cities
-
-    //this is expensive!!
-    return true; //new update accepted
-  }
-  return false; //new update rejected. 
-}
 
