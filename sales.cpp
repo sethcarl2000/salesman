@@ -147,14 +147,6 @@ int main(int argc, char *argv[]){
   //printf("Longitude  Latitude\n");
   //for (const auto& city : cities) printf("%lf %lf\n",	city.lon, city.lat); 
 
-  //make a random index generator
-  random_device rd; 
-  mt19937 randgen(rd()); 
-
-  auto rand_index = std::bind( uniform_int_distribution<int>(0, cities.size()-1), std::ref(randgen) ); 
-
-  auto rand_uniform = std::bind( uniform_real_distribution<double>(0., 1.), std::ref(randgen) ); 
-
   const int n_cities = cities.size(); 
 
   //create an ordering of cities. 
@@ -192,7 +184,7 @@ int main(int argc, char *argv[]){
   const double inflation_per_step = pow(T_end/T_start, 1./((double)n_steps-1)); 
 
   //I'm assuming that the strength of the annealing algorithm goes as the square of 'n_cities', as 
-  const long int n_swaps_per_step = ((long int)n_cities*n_cities) * 200; 
+  const long int n_swaps_per_step = ((long int)n_cities*n_cities) * 5; 
 
   //these keep track of the 'Temp' and the current total length, so we can print the annealing schedule 
   vector<double> pts_length, pts_temp; 
@@ -286,7 +278,7 @@ int main(int argc, char *argv[]){
   if (options.Is_option_set('o')) {
     
     string path_out = options.Arg_or_defalut_value('o', "cities_out.dat"); 
-    save_city_csv(path_out, cities, annealer.Get_city_order()); 
+    save_city_csv(path_out, annealer.Get_cities(), annealer.Get_city_order()); 
   }
 
   auto c = new TCanvas; 
